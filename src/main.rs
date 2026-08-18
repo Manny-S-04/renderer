@@ -1,51 +1,75 @@
-use std::{thread::{self, sleep}, time::Duration};
+use std::{thread::sleep, time::Duration};
 
 #[allow(unused)]
 use x11::xlib::*;
 
-const FRAMES: i32 = 30;
+const FRAMES: i32 = 33;
 
 #[derive(Copy, Clone, Debug)]
 struct Point {
-    x: f32,
-    y: f32,
+    x: i16,
+    y: i16,
+    positions: [(i16, i16); FRAMES as usize],
+    ptr: usize
+}
+
+impl Default for Point {
+    fn default() -> Self {
+        Self { x: Default::default(), y: Default::default(), positions: [(0, 0); FRAMES as usize], ptr: Default::default() }
+    }
 }
 
 
 #[allow(unused)]
 impl Point {
-    pub fn mut_point(&mut self, x: f32, y: f32) {
+    pub fn new(x: i16, y: i16) -> Point { 
+        Point {
+            x,
+            y,
+            positions: [(0 as i16, 0 as i16); FRAMES as usize],
+            ptr: 0,
+        }
+    }
+
+    pub fn mut_point(&mut self, x: i16, y: i16) {
         self.x = x;
         self.y = y;
     }
 
-    pub fn to_polar(&self) -> (f32, f32) {
-        let radius = (self.x * self.x + self.y * self.y).sqrt();
-        let angle = self.y.atan2(self.x);
-        (radius, angle)
-    }
-
-    pub fn from_polar(radius: f32, angle: f32) -> Self {
-        Point {
-            x: radius * angle.cos(),
-            y: radius * angle.sin(),
+    pub fn rotate(&mut self, center: &Point, destination: &Point, infinite: bool) {
+        if self.ptr == 0 {
+            self.calc_frames(center, destination);
+        }
+        if self.ptr < FRAMES as usize {
+            let pos = self.positions[self.ptr];
+            self.mut_point(pos.0, pos.1);
+            self.ptr += 1;
+            if infinite && self.ptr >= FRAMES as usize{ 
+                self.ptr = 0;
+            }
         }
     }
 
-    pub fn rotate(&mut self, center: &Point, destination: &Point) {
-        let p = self;
-        let max_angle = angle(&p, &center, &destination);
-        let (radius, angle) = Point { x: p.x - center.x, y: p.y - center.y }.to_polar();
+    fn calc_frames(&mut self, center: &Point, destination: &Point) {
+        // subtract off center?
+        let max_angle = angle(&self, &center, &destination);
         let step = max_angle / FRAMES as f32;
-        let mut curr_angle: f32 = angle + step;
+        let mut x = self.x as f32 - center.x as f32;
+        let mut y = self.y as f32 - center.y as f32;
+        let cos_step = f32::cos(step);
+        let sin_step = f32::sin(step);
 
-        let dx = radius * curr_angle.cos();
-        let dy = radius * curr_angle.sin();
-        let new_point = Point {
-            x: center.x + dx,
-            y: center.y + dy,
-        };
-        p.mut_point(new_point.x, new_point.y);
+        for i in 0..FRAMES as usize{
+            let new_x = x * cos_step - y * sin_step;
+            let new_y = x * sin_step + y * cos_step;
+
+            self.positions[i] = 
+                ((new_x + center.x as f32).round() as i16,
+                    (new_y + center.y as f32).round() as i16);
+
+            x = new_x;
+            y = new_y;
+        }
     }
 }
 
@@ -69,93 +93,77 @@ fn main() {
         let (window, gc) = create_graphics_context(display, root, width, height);
         let image = create_image(display, screen, &mut pixels, width as u32, height as u32);
 
-        let d1 = point(400.0, 250.0);
-        let d2 = point(350.0, 350.0);
-        let d3 = point(450.0, 350.0);
+        let d1 = Point::new(400, 250);
+        let d2 = Point::new(350, 350);
+        let d3 = Point::new(450, 350);
 
         let mut p1 = d1.clone();
         let mut p2 = d2.clone();
         let mut p3 = d3.clone();
 
-        let center = centroid(&p1, &p2, &p3);
+        let mut center = centroid(&p1, &p2, &p3);
         loop {
             pixels.fill(0xaabbcc);
 
             //draw_circle(width, height, &mut pixels, 5, p1.x as i32, p1.y as i32, 0xffffff);
             //draw_circle(width, height, &mut pixels, 5, p2.x as i32, p2.y as i32, 0xffffff);
             //draw_circle(width, height, &mut pixels, 5, p3.x as i32, p3.y as i32, 0xffffff);
-            draw_triangle(width, height, &mut pixels, &p1, &p2, &p3, 0xffffff);
-            draw_circle(width, height, &mut pixels, 5, center.x as i32, center.y as i32, 0xff0000);
+            draw_triangle(width as i16, height as i16, &mut pixels, &p1, &p2, &p3, 0xffffff);
+            draw_circle(width as i16, height as i16, &mut pixels, 5, center.x as i32, center.y as i32, 0xff0000);
 
             XPutImage(display, window, gc, image, 0, 0, 0, 0, width as u32, height as u32);
             XFlush(display);
 
             // i want a triangle object which captures these 3 points
             // so i can do triangle.rotate(&center);
-            p1.rotate(&center, &p3);
-            p3.rotate(&center, &p2);
-            p2.rotate(&center, &p1);
+            p1.rotate(&center, &p3, true);
+            p3.rotate(&center, &p2, true);
+            p2.rotate(&center, &p1, true);
 
-            sleep(Duration::from_millis((100 / FRAMES) as u64));
+            sleep(Duration::from_millis((1 / FRAMES) as u64));
         }
     }
 }
 
+fn set_pixel(x: i16, y: i16, width: i16, height: i16, pixels: &mut [u32], color: u32) {
+    if x < 0 || x >= width || y < 0 || y >= height {
+        return;
+    }
+
+    let idx = (y as i32 * width as i32 + x as i32) as usize;
+    pixels[idx] = color;
+}
+
 fn angle(p1: &Point, center: &Point, p3: &Point) -> f32 {
-    let v1 = (p1.x - center.x, p1.y - center.y);
-    let v3 = (p3.x - center.x, p3.y - center.y);
-    
+    let v1 = ((p1.x - center.x) as f32, (p1.y - center.y) as f32);
+    let v3 = ((p3.x - center.x) as f32, (p3.y - center.y) as f32);
+
     let mag1 = (v1.0 * v1.0 + v1.1 * v1.1).sqrt();
     let mag3 = (v3.0 * v3.0 + v3.1 * v3.1).sqrt();
     let dot = v1.0 * v3.0 + v1.1 * v3.1;
-    
+
     let cos_angle = (dot / (mag1 * mag3)).clamp(-1.0, 1.0);
-    
+
     cos_angle.acos()
 }
 
 fn centroid(p1: &Point, p2: &Point, p3: &Point) -> Point {
-   return point((p1.x + p2.x + p3.x) / 3.0, (p1.y + p2.y + p3.y) / 3.0); 
+    return Point::new((p1.x + p2.x + p3.x) / 3, (p1.y + p2.y + p3.y) / 3); 
 }
-
 /*
 
-let (astep_x, astep_y) = calc_step(&p1, &p3);
-let (bstep_x, bstep_y) = calc_step(&p3, &p2);
-let (cstep_x, cstep_y) = calc_step(&p2, &p1);
-
-if astep_x != 0.0 && astep_y != 0.0 {
-p1.mut_point(p1.x + astep_x, p1.y + astep_y);
-} else {
-p1.mut_point(b1.x, b1.y);
-}
-
-if bstep_x != 0.0 && bstep_y != 0.0 {
-p3.mut_point(p3.x + bstep_x, p3.y + bstep_y);
-} else {
-p3.mut_point(b3.x, b3.y);
-}
-
-if cstep_x != 0.0 && cstep_y != 0.0 {
-p2.mut_point(p2.x + cstep_x, p2.y + cstep_y);
-} else {
-p2.mut_point(b2.x, b2.y);
-}
-
-
-*/
-
-fn calc_step(pi: &Point, pf: &Point) -> (f32, f32) {
+fn calc_step(pi: &Point, pf: &Point) -> (i16, i16) {
     let dx = pf.x - pi.x;
     let dy = pf.y - pi.y;
 
-    let step_x = dx / FRAMES as f32;
-    let step_y = dy / FRAMES as f32;
+    let step_x = dx / FRAMES as i16;
+    let step_y = dy / FRAMES as i16;
 
     return (step_x, step_y);
 }
+*/
 
-fn draw_circle(width: usize, height: usize, pixels: &mut Vec<u32>, radius: i32, cx: i32, cy: i32, color: u32) {
+fn draw_circle(width: i16, height: i16, pixels: &mut Vec<u32>, radius: i32, cx: i32, cy: i32, color: u32) {
     let r2 = radius * radius;
 
     let min_x = (cx - radius).max(0);
@@ -169,68 +177,60 @@ fn draw_circle(width: usize, height: usize, pixels: &mut Vec<u32>, radius: i32, 
             let dy = y - cy;
 
             if dx * dx + dy * dy <= r2 {
-                let idx = (y * width as i32 + x) as usize;
-                pixels[idx] = color;
+                set_pixel(x as i16, y as i16, width, height, pixels, color);
             }
         }
     }
 }
 
-fn point(x: f32, y: f32) -> Point {
-    Point{ x, y }
-}
-
-fn edge_function(a: &Point, b: &Point, c: &Point) -> f32 {
+fn edge_function(a: &Point, b: &Point, c: &Point) -> i16 {
     (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)
 }
 
 fn draw_triangle(
-    width: usize,
-    height: usize,
+    width: i16,
+    height: i16,
     pixels: &mut [u32],
     p0: &Point,
     p1: &Point,
     p2: &Point,
     color: u32,
 ) {
-    let min_x = p0.x.min(p1.x).min(p2.x).floor().max(0.0) as usize;
-    let max_x = p0.x.max(p1.x).max(p2.x).ceil().min(width as f32 - 1.0) as usize;
-    let min_y = p0.y.min(p1.y).min(p2.y).floor().max(0.0) as usize;
-    let max_y = p0.y.max(p1.y).max(p2.y).ceil().min(height as f32 - 1.0) as usize;
+    let min_x = p0.x.min(p1.x).min(p2.x);
+    let max_x = p0.x.max(p1.x).max(p2.x);
+    let min_y = p0.y.min(p1.y).min(p2.y);
+    let max_y = p0.y.max(p1.y).max(p2.y);
 
     let area = edge_function(&p0, &p1, &p2);
-    if area == 0.0 {
-        return;
-    }
+    if area == 0 { return; }
 
+    // do creation once and iterate over
     for y in min_y..=max_y {
         for x in min_x..=max_x {
-            let p = Point {
-                x: x as f32 + 0.5,
-                y: y as f32 + 0.5,
-            };
+            let p = Point::new(x,y);
 
             let w0 = edge_function(&p1, &p2, &p);
             let w1 = edge_function(&p2, &p0, &p);
             let w2 = edge_function(&p0, &p1, &p);
 
-            let inside = (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0)
-            || (w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0);
+            let inside = 
+            (w0 >= 0 && w1 >= 0 && w2 >= 0) 
+            ||
+            (w0 <= 0 && w1 <= 0 && w2 <= 0);
 
             if inside {
-                let idx = y * width + x;
-                pixels[idx] = color;
+                set_pixel(x, y, width, height, pixels, color);
             }
         }
     }
 }
 
 fn draw_line(
-    width: usize,
-    height: usize,
+    width: i16,
+    height: i16,
     pixels: &mut Vec<u32>,
-    (x1, y1): (i32, i32),
-    (x2, y2): (i32, i32),
+    (x1, y1): (i16, i16),
+    (x2, y2): (i16, i16),
     color: u32,
 ) {
     let dx = (x2 - x1).abs();
@@ -243,9 +243,8 @@ fn draw_line(
     let mut y = y1;
 
     loop {
-        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
-            let idx = y as usize * width + x as usize;
-            pixels[idx] = color;
+        if x >= 0 && x < width && y >= 0 && y < height {
+            set_pixel(x, y, width, height, pixels, color);
         }
 
         if x == x2 && y == y2 {
