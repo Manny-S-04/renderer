@@ -23,3 +23,15 @@ jobs:
       - run: cargo build --no-default-features
       - name: headless frame
         run: cargo run --release --no-default-features -- cube --ppm cube.ppm && test -s cube.ppm
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release

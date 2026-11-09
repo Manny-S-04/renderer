@@ -1,6 +1,6 @@
 # renderer
 
-Software rasterizer in Rust, based on tsoding's [olive.c](https://github.com/tsoding/olive.c). Everything gets drawn into a `Vec<u32>` of pixels, no GPU and no graphics crates. Xlib is only used to show the buffer in a window.
+Software rasterizer in Rust, based on tsoding's [olive.c](https://github.com/tsoding/olive.c). Everything gets drawn into a `Vec<u32>` of pixels, no GPU and no graphics crates. Xlib on Linux and Win32 GDI on Windows are only used to show the buffer in a window.
 
 <p align="center">
   <img src="docs/cube.gif" width="400" alt="rotating cube">
@@ -14,7 +14,7 @@ cargo run --release -- cube --ppm frame.ppm --time 2.5 # single frame to a file
 cargo test
 ```
 
-`cargo build --no-default-features` builds without x11 (only `--ppm` works then), that's what CI uses.
+`cargo build --no-default-features` builds without a window (only `--ppm` works then), that's what the headless CI step uses.
 
 ## Layout
 
@@ -22,7 +22,9 @@ cargo test
 - `src/math.rs` - Vec2, Vec3, Mat3 rotations
 - `src/color.rs` - 0xAARRGGBB colours, blend, mix, shade
 - `src/demos.rs` - triangle and cube
-- `src/main.rs` - args and the xlib window
+- `src/main.rs` - args and the frame loop
+- `src/event.rs` - Event and Key, shared by both window backends
+- `src/window_x11.rs`, `src/window_win32.rs` - `renderer::window`, same API per platform: open_window, poll_event, should_quit, present, close_window. My flappy and physics sandbox use it too
 
 ## Notes
 
