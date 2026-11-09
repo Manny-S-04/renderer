@@ -2,6 +2,21 @@
 name = "renderer"
 version = "0.1.0"
 edition = "2024"
+description = "small software rasterizer, olive.c style"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "renderer"
+path = "src/main.rs"
+
+[features]
+default = ["x11"]
+x11 = ["dep:x11"]
 
 [dependencies]
-x11 = { version = "2", features = ["xlib"] }
+x11 = { version = "2", features = ["xlib"], optional = true }
+
+[profile.release]
+debug = 1
